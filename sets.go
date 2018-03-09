@@ -137,27 +137,30 @@ func (cp *ConnPool) SMOVE(source, destination string, member interface{}) (v boo
 // Removes and returns one or more random elements from the set value store at key.
 // The count argument is available since version 3.2.
 //
-// Array reply v: the removed elements.
+// Bulk string reply v: the removed element.
 // ErrNil when key does not exist.
 //
 // Time complexity: O(1)
-func (cp *ConnPool) SPOP(key string, count int) (v []string, err error) {
+func (cp *ConnPool) SPOP(key string) (v string, err error) {
 	conn := cp.GetMasterConn()
-	if cp.lessThan("3.2.0") {
-		if count > 1 {
-			return nil, ErrNotSupport
-		}
-		var s string
-		if s, err = lib.String(conn.Do("SPOP", key)); err != nil {
-			v = []string{s}
-		}
-	} else {
-		v, err = lib.Strings(conn.Do("SPOP", key, count))
-	}
+	v, err = lib.String(conn.Do("SPOP", key))
 	conn.Close()
 	if err == lib.ErrNil {
 		err = ErrNil
 	}
+	return
+}
+
+// Available since 3.2.0.
+//
+// Array reply v: the removed elements.
+func (cp *ConnPool) SPOPExtra(key string, count int) (v []string, err error) {
+	conn := cp.GetMasterConn()
+	if cp.lessThan("3.2.0") {
+		return nil, ErrNotSupport
+	}
+	v, err = lib.Strings(conn.Do("SPOP", key, count))
+	conn.Close()
 	return
 }
 

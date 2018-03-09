@@ -36,44 +36,55 @@ func getDefaultPool() *ConnPool {
 	return cp
 }
 
-func TestMultiPool_AddPool(t *testing.T) {
+func TestMultiPool_Add(t *testing.T) {
 	mp, _ := NewMultiPool([]*Address{}, MaxConnIdle, MaxConnActive, IdleTimeout)
 	cp, _ := mp.Add(NewSimpleAddr("127.0.0.1"))
 	if cp == nil {
 		t.Fail()
 	}
 
-	cp, _  = mp.Add(NewSimpleAddr("127.0.0.1:"))
+	cp, _ = mp.Add(NewSimpleAddr("127.0.0.1:"))
 	if cp == nil {
 		t.Fail()
 	}
 
-	cp, _  = mp.Add(NewSimpleAddr("127.0.0.1:6379"))
+	cp, _ = mp.Add(NewSimpleAddr("127.0.0.1:6379"))
 	if cp == nil {
 		t.Fail()
 	}
 
-	cp, _  = mp.Add(NewSimpleAddr("127.0.0.1:6379:"))
+	cp, _ = mp.Add(NewSimpleAddr("127.0.0.1:6379:"))
 	if cp == nil {
 		t.Fail()
 	}
 
-	cp, _  = mp.Add(NewSimpleAddr("127.0.0.1:6379::"))
+	cp, _ = mp.Add(NewSimpleAddr("127.0.0.1:6379::"))
 	if cp == nil {
 		t.Fail()
 	}
 
-	cp, _  = mp.Add(NewSimpleAddr("127.0.0.1:6379::1"))
+	cp, _ = mp.Add(NewSimpleAddr("127.0.0.1:6379::1"))
 	if cp == nil {
 		t.Fail()
 	}
 
-	cp, _  = mp.Add(NewSimpleAddr("127.0.0.1:::"))
+	cp, _ = mp.Add(NewSimpleAddr("127.0.0.1:::"))
 	if cp == nil {
 		t.Fail()
 	}
 
-	cp, _  = mp.Add(NewSimpleAddr("127.0.0.1:::1"))
+	cp, _ = mp.Add(NewSimpleAddr("127.0.0.1:::1"))
+	if cp == nil {
+		t.Fail()
+	}
+
+	addr := &Address{
+		Master: "127.0.0.1",
+		Slaves: []string{
+			"127.0.0.1",
+		},
+	}
+	cp, _ = mp.Add(addr)
 	if cp == nil {
 		t.Fail()
 	}

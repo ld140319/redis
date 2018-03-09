@@ -2,6 +2,17 @@ package redis
 
 import lib "github.com/garyburd/redigo/redis"
 
+type KeyType string
+
+const (
+	NoneType      = "none"
+	StringType    = "string"
+	HashType      = "hash"
+	ListType      = "list"
+	SetType       = "set"
+	SortedSetType = "zset"
+)
+
 // Removes the specified keys. A key is ignored if it does not exist.
 //
 // Integer reply v: The number of keys that were removed.
@@ -22,6 +33,7 @@ func (cp *ConnPool) DEL(keys ...interface{}) (v int64, err error) {
 // the RESTORE command.
 //
 // Bulk string reply v: the serialized value.
+// ErrNil when key does not exist.
 //
 // Time complexity: O(1) to access the key and additional O(N*M) to serialized it,
 // where N is the number of Redis objects composing the value and M their
@@ -31,19 +43,35 @@ func (cp *ConnPool) DUMP(key string) (v string, err error) {
 	conn := cp.GetSlaveConn()
 	v, err = lib.String(conn.Do("DUMP", key))
 	conn.Close()
+	if err == lib.ErrNil {
+		err = ErrNil
+	}
 	return
 }
 
 // Returns if key exists.
 //
-// Integer reply v, specifically:
-// 1 if the key exists.
-// 0 if the key does not exist.
-// if > 3.0.3: The number of keys existing among the ones specified as arguments.
-// Keys mentioned multiple times and existing are counted multiple times.
+// Boolean reply v, specifically:
+// true if the key exists.
+// false if the key does not exist.
 //
 // Time complexity: O(1)
-func (cp *ConnPool) EXISTS(keys ...interface{}) (v int64, err error) {
+func (cp *ConnPool) EXISTS(key string) (v bool, err error) {
+	conn := cp.GetSlaveConn()
+	v, err = lib.Bool(conn.Do("EXISTS", key))
+	conn.Close()
+	return
+}
+
+// Available since 3.0.3.
+//
+// Integer reply v, specifically:
+// The number of keys existing among the ones specified as arguments.
+// Keys mentioned multiple times and existing are counted multiple times.
+func (cp *ConnPool) EXISTSExtra(keys ...interface{}) (v int64, err error) {
+	if cp.lessThan("3.0.3") {
+		return 0, ErrNotSupport
+	}
 	conn := cp.GetSlaveConn()
 	v, err = lib.Int64(conn.Do("EXISTS", keys...))
 	conn.Close()
@@ -232,7 +260,7 @@ func (cp *ConnPool) RENAMENX(key string, newKey string) (v bool, err error) {
 // complexity is thus O(1)+O(1*M) where M is small, so simply O(1). However for
 // sorted set values the complexity is O(N*M*log(N)) because inserting values into
 // sorted sets is O(log(N)).
-func (cp *ConnPool) RESTORE(key string, ttl, value interface{}, replace bool) (err error) {
+func (cp *ConnPool) RESTORE(key string, ttl /*milliseconds*/, value interface{}, replace bool) (err error) {
 	conn := cp.GetMasterConn()
 	if cp.greaterThan("3.0") && replace {
 		_, err = conn.Do("RESTORE", key, ttl, value, "REPLACE")
@@ -290,13 +318,15 @@ func (cp *ConnPool) TTL(key string) (v int64, err error) {
 
 // Returns the string representation of the type of the value stored at key.
 //
-// Simple string reply v: type of key, or none when key does not exist.
+// KeyType v: type of key, NoneType when key does not exist.
 //
 // Time complexity: O(1)
-func (cp *ConnPool) TYPE(key string) (v string, err error) {
+func (cp *ConnPool) TYPE(key string) (v KeyType, err error) {
 	conn := cp.GetMasterConn()
-	v, err = lib.String(conn.Do("TYPE", key))
+	var s string
+	s, err = lib.String(conn.Do("TYPE", key))
 	conn.Close()
+	v = KeyType(s)
 	return
 }
 

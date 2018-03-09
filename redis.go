@@ -24,6 +24,14 @@ var (
 	ErrNotSupport = errors.New("redis version not support")
 )
 
+type Option int
+
+const (
+	Default    = iota
+	AddOnly    // NX
+	UpdateOnly // XX
+)
+
 // New redis connection string
 // Format: host:[[port]:[password]:[db]
 // Example:
@@ -149,7 +157,7 @@ func (p *pool) getConn() lib.Conn {
 }
 
 // Available since 2.8.12.
-func (p *pool) ROLE() (error) {
+func (p *pool) ROLE() error {
 	conn := p.getConn()
 	conn.Do("ROLE")
 	conn.Close()

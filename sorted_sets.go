@@ -5,14 +5,9 @@ import lib "github.com/garyburd/redigo/redis"
 const (
 	MaxScore = "inf"
 	MinScore = "-inf"
-)
 
-type AddOption int
-
-const (
-	Default     = iota
-	AddNew      // NX: Don't update already existing elements. Always add new elements.
-	UpdateExist // XX: Only update elements that already exist. Never add elements.
+	MaxLex = "+"
+	MinLex = "-"
 )
 
 // Adds the specified member with the specified score to the sorted set stored at key.
@@ -28,7 +23,8 @@ func (cp *ConnPool) ZADD(key string, score, member interface{}) (v int64, err er
 	return
 }
 
-// Adds multiple score / member pairs.
+// Adds multiple member / score pairs.
+// Map key is the member and value is the specified score.
 func (cp *ConnPool) ZADDMap(key string, m map[string]interface{}) (v int64, err error) {
 	args := make([]interface{}, 0, len(m)*2+1)
 	args = append(args, key)
@@ -41,20 +37,44 @@ func (cp *ConnPool) ZADDMap(key string, m map[string]interface{}) (v int64, err 
 	return
 }
 
-// Adds to the sorted set with extra options.
-func (cp *ConnPool) ZADDExtra(key string, option AddOption, ch, incr bool, score, member interface{}) (v int64, err error) {
-	args := make([]interface{}, 0, 6)
+// Available since 3.0.2.
+//
+// Adds to the sorted set with INCR option.
+func (cp *ConnPool) ZADDIncr(key string, option Option, score, member interface{}) (v string, err error) {
+	if cp.lessThan("3.0.2") {
+		return "", ErrNotSupport
+	}
+	args := make([]interface{}, 0, 5)
 	args = append(args, key)
-	if option == AddNew {
+	if option == AddOnly {
 		args = append(args, "NX")
-	} else if option == UpdateExist {
+	} else if option == UpdateOnly {
+		args = append(args, "XX")
+	}
+	args = append(args, "INCR")
+	args = append(args, score, member)
+	conn := cp.GetMasterConn()
+	v, err = lib.String(conn.Do("ZADD", args...))
+	conn.Close()
+	return
+}
+
+// Available since 3.0.2.
+//
+// Adds to the sorted set with extra options.
+func (cp *ConnPool) ZADDExtra(key string, option Option, ch bool, score, member interface{}) (v int64, err error) {
+	if cp.lessThan("3.0.2") {
+		return 0, ErrNotSupport
+	}
+	args := make([]interface{}, 0, 5)
+	args = append(args, key)
+	if option == AddOnly {
+		args = append(args, "NX")
+	} else if option == UpdateOnly {
 		args = append(args, "XX")
 	}
 	if ch {
 		args = append(args, "CH")
-	}
-	if incr {
-		args = append(args, "INCR")
 	}
 	args = append(args, score, member)
 	conn := cp.GetMasterConn()
@@ -63,13 +83,18 @@ func (cp *ConnPool) ZADDExtra(key string, option AddOption, ch, incr bool, score
 	return
 }
 
+// Available since 3.0.2.
+//
 // Adds multiple score / member pairs with extra options.
-func (cp *ConnPool) ZADDExtraMap(key string, option AddOption, ch bool, m map[string]interface{}) (v int64, err error) {
+func (cp *ConnPool) ZADDExtraMap(key string, option Option, ch bool, m map[string]interface{}) (v int64, err error) {
+	if cp.lessThan("3.0.2") {
+		return 0, ErrNotSupport
+	}
 	args := make([]interface{}, 0, len(m)*2+3)
 	args = append(args, key)
-	if option == AddNew {
+	if option == AddOnly {
 		args = append(args, "NX")
-	} else if option == UpdateExist {
+	} else if option == UpdateOnly {
 		args = append(args, "XX")
 	}
 	if ch {
@@ -112,6 +137,7 @@ func (cp *ConnPool) ZCOUNT(key string, min, max interface{}) (v int64, err error
 //
 // Bulk string reply v: the new score of member (a double precision floating point
 // number), represented as string.
+// inf and -inf are valid scores.
 //
 // Time complexity: O(log(N)) where N is the number of elements in the sorted set.
 func (cp *ConnPool) ZINCRBY(key string, increment, member interface{}) (v string, err error) {
@@ -133,6 +159,9 @@ func (cp *ConnPool) ZINTERSTORE() {
 // When all the elements in a sorted set are inserted with the same score, in
 // order to force lexicographical ordering, this command returns the number
 // of elements in the sorted set at key with a value between min and max.
+//
+// Valid min and max must start with ( or [, in order to specify if the range
+// item is respectively exclusive or inclusive.
 //
 // Integer reply v: the number of elements in the specified score range.
 //

@@ -15,8 +15,10 @@ func (cp *ConnPool) BLPOP(timeout int64, keys ...interface{}) (v []string, err e
 	args = append(args, timeout)
 	conn := cp.GetMasterConn()
 	v, err = lib.Strings(conn.Do("BLPOP", args...))
-	// @todo return value
 	conn.Close()
+	if err == lib.ErrNil {
+		err = ErrNil
+	}
 	return
 }
 
@@ -33,8 +35,10 @@ func (cp *ConnPool) BRPOP(timeout int64, keys ...interface{}) (v []string, err e
 	args = append(args, timeout)
 	conn := cp.GetMasterConn()
 	v, err = lib.Strings(conn.Do("BRPOP", args...))
-	// @todo return value
 	conn.Close()
+	if err == lib.ErrNil {
+		err = ErrNil
+	}
 	return
 }
 
@@ -170,7 +174,7 @@ func (cp *ConnPool) LRANGE(key string, start, stop interface{}) (v []string, err
 // Integer reply v: the number of removed elements.
 //
 // Time complexity: O(N) where N is the length of the list.
-func (cp *ConnPool) LREM(key string, count, value interface{}) (v int64, err error) {
+func (cp *ConnPool) LREM(key string, count int, value interface{}) (v int64, err error) {
 	conn := cp.GetMasterConn()
 	v, err = lib.Int64(conn.Do("LREM", key, count, value))
 	conn.Close()

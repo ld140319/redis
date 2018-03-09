@@ -43,11 +43,11 @@ func (cp *ConnPool) BITCOUNT(key string, start, end interface{}) (v int64, err e
 	return
 }
 
-// Available since 2.8.7.
+// Available since 3.2.0.
 //
 // Time complexity: O(1) for each subcommand specified
 func (cp *ConnPool) BITFIELD() error {
-	if cp.lessThan("2.8.7") {
+	if cp.lessThan("3.2.0") {
 		return ErrNotSupport
 	}
 	// @todo
@@ -79,12 +79,16 @@ func (cp *ConnPool) BITOP(operate BitOperate, destKey string, keys ...interface{
 // -1 if we look for set bits (the bit argument is 1) and the string is empty or composed of just zero bytes.
 //
 // Time complexity: O(N)
-func (cp *ConnPool) BITPOS(key string, bit, start, end interface{}) (v int64, err error) {
+func (cp *ConnPool) BITPOS(key string, bit bool, start, end interface{}) (v int64, err error) {
 	if cp.lessThan("2.8.7") {
 		return 0, ErrNotSupport
 	}
+	val := 0
+	if bit {
+		val = 1
+	}
 	conn := cp.GetMasterConn()
-	v, err = lib.Int64(conn.Do("BITPOS", key, bit, start, end))
+	v, err = lib.Int64(conn.Do("BITPOS", key, val, start, end))
 	conn.Close()
 	return
 }
@@ -131,12 +135,12 @@ func (cp *ConnPool) GET(key string) (v string, err error) {
 
 // Returns the bit value at offset in the string value stored at key.
 //
-// Integer reply v: the bit value stored at offset.
+// Boolean reply v: the bit value stored at offset.
 //
 // Time complexity: O(1)
-func (cp *ConnPool) GETBIT(key string, offset interface{}) (v int64, err error) {
+func (cp *ConnPool) GETBIT(key string, offset interface{}) (v bool, err error) {
 	conn := cp.GetSlaveConn()
-	v, err = lib.Int64(conn.Do("GETBIT", key, offset))
+	v, err = lib.Bool(conn.Do("GETBIT", key, offset))
 	conn.Close()
 	return
 }
@@ -236,9 +240,8 @@ func (cp *ConnPool) MGET(keys ...interface{}) (map[string]string, error) {
 // Sets the given keys to their respective values.
 //
 // Time complexity: O(N) where N is the number of keys to set.
-func (cp *ConnPool) MSET(key string, m map[string]interface{}) (err error) {
-	args := make([]interface{}, 0, len(m)+1)
-	args = append(args, key)
+func (cp *ConnPool) MSET(m map[string]interface{}) (err error) {
+	args := make([]interface{}, 0, len(m)*2)
 	for k, v := range m {
 		args = append(args, k, v)
 	}
@@ -256,9 +259,8 @@ func (cp *ConnPool) MSET(key string, m map[string]interface{}) (err error) {
 // false if no key was set (at least one key already existed).
 //
 // Time complexity: O(N) where N is the number of keys to set.
-func (cp *ConnPool) MSETNX(key string, m map[string]interface{}) (v bool, err error) {
-	args := make([]interface{}, 0, len(m)+1)
-	args = append(args, key)
+func (cp *ConnPool) MSETNX(m map[string]interface{}) (v bool, err error) {
+	args := make([]interface{}, 0, len(m)*2)
 	for k, v := range m {
 		args = append(args, k, v)
 	}
@@ -284,44 +286,52 @@ func (cp *ConnPool) PSETEX(key string, milliseconds, value interface{}) (err err
 //
 // Time complexity: O(1)
 func (cp *ConnPool) SET(key string, value interface{}) (err error) {
-	return cp.SETExtra(key, value, 0, 0, false, false)
+	return cp.SETExtra(key, value, 0, 0, Default)
 }
 
 // > 2.6.12
+//
 // EX seconds -- Set the specified expire time, in seconds.
 // PX milliseconds -- Set the specified expire time, in milliseconds.
-// NX -- Only set the key if it does not already exist.
-// XX -- Only set the key if it already exist.
+//
+// ErrNil if the key already exists but AddOnly option is set, or
+// if the key does not exist but UpdateOnly option is set.
 //
 // If seconds is set, milliseconds will be ignored.
-func (cp *ConnPool) SETExtra(key string, value interface{}, seconds, milliseconds int64, nx, xx bool) (err error) {
-	args := make([]interface{}, 0, 6)
+func (cp *ConnPool) SETExtra(key string, value interface{}, seconds, milliseconds int64, option Option) (err error) {
+	args := make([]interface{}, 0, 5)
 	args = append(args, key, value)
 	if seconds > 0 {
 		args = append(args, "EX", seconds)
 	} else if milliseconds > 0 {
 		args = append(args, "PX", milliseconds)
 	}
-	if nx {
+	if option == AddOnly {
 		args = append(args, "NX")
-	}
-	if xx {
+	} else if option == UpdateOnly {
 		args = append(args, "XX")
 	}
 	conn := cp.GetMasterConn()
-	_, err = conn.Do("SET", args...)
+	_, err = lib.String(conn.Do("SET", args...))
 	conn.Close()
+	if err == lib.ErrNil {
+		err = ErrNil
+	}
 	return
 }
 
 // Sets or clears the bit at offset in the string value stored at key.
 //
-// Integer reply v: the original bit value stored at offset.
+// Boolean reply v: the original bit value stored at offset.
 //
 // Time complexity: O(1)
-func (cp *ConnPool) SETBIT(key string, offset, value interface{}) (v int64, err error) {
+func (cp *ConnPool) SETBIT(key string, offset interface{}, value bool) (v bool, err error) {
+	val := 0
+	if value {
+		val = 1
+	}
 	conn := cp.GetMasterConn()
-	v, err = lib.Int64(conn.Do("SETBIT", key, offset, value))
+	v, err = lib.Bool(conn.Do("SETBIT", key, offset, val))
 	conn.Close()
 	return
 }
@@ -352,6 +362,8 @@ func (cp *ConnPool) SETNX(key string, value interface{}) (v bool, err error) {
 
 // Overwrites part of the string stored at key, starting at the specified offset,
 // for the entire length of value.
+// If the offset is larger than the current length of the string at key, the string
+// is padded with zero-bytes to make offset fit.
 //
 // Integer reply v: the length of the string after it was modified by the command.
 //
